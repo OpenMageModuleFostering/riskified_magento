@@ -15,14 +15,14 @@
      */
 
 /**
- * Class Refund
+ * Class Decision
  * data model of an exisiting order's refund details
  * @package Riskified\OrderWebhook\Model
  */
-class Refund extends AbstractModel {
+class Decision extends AbstractModel {
 
     protected $_fields = array(
         'id' => 'string',
-        'refunds' => 'array object \RefundDetails'
+        'decision' => 'object \DecisionDetails'
     );
 }

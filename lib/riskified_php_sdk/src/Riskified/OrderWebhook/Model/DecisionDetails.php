@@ -15,14 +15,19 @@
      */
 
 /**
- * Class Refund
- * data model of an exisiting order's refund details
+ * Class DecisionDetails
+ * data model of shipping line costs
  * @package Riskified\OrderWebhook\Model
  */
-class Refund extends AbstractModel {
+class DecisionDetails extends AbstractModel {
 
     protected $_fields = array(
-        'id' => 'string',
-        'refunds' => 'array object \RefundDetails'
+        'external_status' => 'string',
+        'decided_at' => 'date optional',
+        'reason' => 'string optional',
+        'amount' => 'double optional',
+        'currency' => 'string /^[A-Z]{3}$/i optional',
+        'notes' => 'string optional'
     );
+
 }

@@ -1,4 +1,4 @@
-<?php namespace Riskified\OrderWebhook\Exception;
+<?php
 /**
  * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
@@ -14,9 +14,14 @@
  * permissions and limitations under the License.
  */
 
+namespace Riskified\Common;
+
 /**
- * Class TypeMismatchPropertyException
- * thrown for a value of the wrong type
- * @package Riskified\OrderWebhook\Exception
+ * Class Validations
+ * @package Riskified\Common
  */
-class TypeMismatchPropertyException extends PropertyException {}
+class Validations {
+    const SKIP = 'skip';
+    const IGNORE_MISSING = 'ignore_missing';
+    const ALL = 'all';
+}

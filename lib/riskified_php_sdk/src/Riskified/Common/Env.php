@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -16,16 +16,13 @@
 
 namespace Riskified\Common;
 
-
+/**
+ * Class Env
+ * @package Riskified\Common
+ */
 class Env {
     const PROD = 'prod';
     const STAGING = 'staging';
     const SANDBOX = 'sandbox';
     const DEV = 'development';
-}
-
-class Validations {
-    const SKIP = 'skip';
-    const IGNORE_MISSING = 'ignore_missing';
-    const ALL = 'all';
 }

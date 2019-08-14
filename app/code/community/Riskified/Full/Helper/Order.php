@@ -3,6 +3,7 @@
 require_once(Mage::getBaseDir('lib') . DIRECTORY_SEPARATOR . 'riskified_php_sdk' . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Riskified' . DIRECTORY_SEPARATOR . 'autoloader.php');
 use Riskified\Common\Riskified;
 use Riskified\Common\Signature;
+use Riskified\Common\Validations;
 use Riskified\OrderWebhook\Model;
 use Riskified\OrderWebhook\Transport;
 use Riskified\DecisionNotification\Model\Notification as DecisionNotification;
@@ -18,6 +19,42 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         $this->initSdk();
     }
 
+    /**
+     * Update the merchan't settings
+     *
+     * @param settings hash
+     * @return stdClass
+     * @throws Exception
+     */
+    public function updateMerchantSettings($settings) {
+        $transport = $this->getTransport();
+        Mage::helper('full/log')->log('updateMerchantSettings');
+
+        try {
+            $response = $transport->updateMerchantSettings($settings);
+
+            Mage::helper('full/log')->log('Merchant Settings posted successfully');
+        } catch(\Riskified\OrderWebhook\Exception\UnsuccessfulActionException $uae) {
+            if ($uae->statusCode == '401') {
+                Mage::helper('full/log')->logException($uae);
+                Mage::getSingleton('adminhtml/session')->addError('Make sure you have the correct Auth token as it appears in Riskified advanced settings.');
+            }
+            throw $uae;
+        } catch(\Riskified\OrderWebhook\Exception\CurlException $curlException) {
+            Mage::helper('full/log')->logException($curlException);
+            Mage::getSingleton('adminhtml/session')->addError('Riskified extension: ' . $curlException->getMessage());
+
+            throw $curlException;
+        }
+        catch (Exception $e) {
+            Mage::helper('full/log')->logException($e);
+            Mage::getSingleton('adminhtml/session')->addError('Riskified extension: ' . $e->getMessage());
+
+            throw $e;
+        }
+        return $response;
+
+    }
     /**
      * Submit an order to Riskified.
      *
@@ -61,6 +98,8 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
                     break;
             }
 
+            Mage::helper('full/log')->log('Order posted successfully - invoking post order event');
+
             $eventData['response'] = $response;
 
             Mage::dispatchEvent(
@@ -71,7 +110,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
             Mage::helper('full/log')->logException($curlException);
             Mage::getSingleton('adminhtml/session')->addError('Riskified extension: ' . $curlException->getMessage());
 
-            $this->updateOrder($order, 'error', 'Error transferring order data to Riskified');
+            $this->updateOrder($order, 'error',nil, 'Error transferring order data to Riskified');
             $this->scheduleSubmissionRetry($order, $action);
 
             Mage::dispatchEvent(
@@ -120,15 +159,18 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
 	 *
 	 * @param Mage_Sales_Model_Order $order
 	 * @param string $status
+     * @param string $oldStatus
 	 * @param string $description
 	 * @return void
 	 */
-	public function updateOrder($order, $status, $description) {
-		Mage::helper('full/log')->log('Dispatching event for order ' . $order->getId() . ' with status "' . $status . '" and description "' . $description . '"');
+	public function updateOrder($order, $status, $oldStatus, $description) {
+		Mage::helper('full/log')->log('Dispatching event for order ' . $order->getId() . ' with status "' . $status .
+            '" old status "' . $oldStatus . '" and description "' . $description . '"');
 
 		$eventData = array(
 			'order' => $order,
 			'status' => $status,
+            'old_status' => $oldStatus,
 			'description' => $description
 		);
 
@@ -153,13 +195,23 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         return Riskified::getHostByEnv();
     }
 
+    public function getRiskifiedApp() {
+        return str_replace("wh", "app", $this->getRiskifiedDomain());
+    }
+
     public function parseRequest($request) {
         $header_name = Signature\HttpDataSignature::HMAC_HEADER_NAME;
         $headers = array($header_name => $request->getHeader($header_name));
         $body = $request->getRawBody();
         Mage::helper('full/log')->log("Received new notification request with headers: " . json_encode($headers) . " and body: $body. Trying to parse.");
-        return new
-        DecisionNotification(new Signature\HttpDataSignature(), $headers, $body);
+        return new DecisionNotification(new Signature\HttpDataSignature(), $headers, $body);
+    }
+
+    public function getOrderOrigId($order) {
+        if(!$order) {
+            return null;
+        }
+        return $order->getId() . '_' . $order->getIncrementId();
     }
 
     private $version;
@@ -173,7 +225,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         $sdkVersion = Riskified::VERSION;
 
 	    Mage::helper('full/log')->log("Riskified initSdk() - shop: $shopDomain, env: $env, token: $authToken, extension_version: $this->version, sdk_version: $sdkVersion");
-        Riskified::init($shopDomain, $authToken, $env, \Riskified\Common\Validations::SKIP);
+        Riskified::init($shopDomain, $authToken, $env, Validations::SKIP);
     }
 
     private function getHeaders() {
@@ -188,7 +240,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
 
     private function getOrderCancellation($model) {
         $orderCancellation = new Model\OrderCancellation(array_filter(array(
-            'id' => $model->getId(),
+            'id' => $this->getOrderOrigId($model),
             'cancelled_at' => $this->formatDateAsIso8601($this->getCancelledAt($model)),
             'cancel_reason' => 'Cancelled by merchant'
         )));
@@ -199,14 +251,19 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
     }
 
     private function getOrder($model) {
-        $order = new Model\Order(array_filter(array(
-            'id' => $model->getId(),
+        $gateway = 'unavailable';
+        if ($model->getPayment()) {
+            $gateway = $model->getPayment()->getMethod();
+        }
+
+        $order_array = array(
+            'id' => $this->getOrderOrigId($model),
             'name' => $model->getIncrementId(),
             'email' => $model->getCustomerEmail(),
             'created_at' => $this->formatDateAsIso8601($model->getCreatedAt()),
             'currency' => $model->getOrderCurrencyCode(),  // was getBaseCurrencyCode() before by mistake
             'updated_at' => $this->formatDateAsIso8601($model->getUpdatedAt()),
-            'gateway' => $model->getPayment()->getMethod(),
+            'gateway' => $gateway,
             'browser_ip' => $this->getRemoteIp($model),
             'cart_token' => Mage::helper('full')->getSessionId(),
             'note' => $model->getCustomerNote(),
@@ -219,8 +276,17 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
             'total_weight' => $model->getWeight(),
             'cancelled_at' => $this->formatDateAsIso8601($this->getCancelledAt($model)),
             'financial_status' => $model->getState(),
-            'fulfillment_status' => $model->getStatus()
-        ),'strlen'));
+            'fulfillment_status' => $model->getStatus(),
+            'vendor_id' => $model->getStoreId(),
+            'vendor_name' => $model->getStoreName()
+        );
+
+        if (Mage::getSingleton('admin/session')->isLoggedIn()) {
+            unset($order_array['browser_ip']);
+            unset($order_array['cart_token']);
+        }
+
+        $order = new Model\Order(array_filter($order_array,'strlen'));
 
         $order->customer = $this->getCustomer($model);
         $order->shipping_address = $this->getShippingAddress($model);
@@ -228,7 +294,10 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         $order->payment_details = $this->getPaymentDetails($model);
         $order->line_items = $this->getLineItems($model);
         $order->shipping_lines = $this->getShippingLines($model);
-        $order->client_details = $this->getClientDetails($model);
+
+        if (!Mage::getSingleton('admin/session')->isLoggedIn()) {
+            $order->client_details = $this->getClientDetails($model);
+        }
 
 	    Mage::helper('full/log')->log("getOrder(): ".PHP_EOL.json_encode(json_decode($order->toJson())));
 
@@ -243,6 +312,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
             'first_name' => $model->getCustomerFirstname(),
             'last_name' => $model->getCustomerLastname(),
             'note' => $model->getCustomerNote(),
+            'group_name' => $model->getCustomerGroupId()
         );
 
         if ($customer_id) {
@@ -250,13 +320,21 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
             $customer_props['created_at'] = $this->formatDateAsIso8601($customer_details->getCreatedAt());
             $customer_props['updated_at'] = $this->formatDateAsIso8601($customer_details->getUpdatedAt());
 
-            $customer_orders = Mage::getModel('sales/order')->getCollection()->addFieldToFilter('customer_id', $customer_id);
-            $customer_orders_count = $customer_orders->count();
+            try {
+                $customer_orders = Mage::getModel('sales/order')->getCollection()->addFieldToFilter('customer_id', $customer_id);
+                $customer_orders_count = $customer_orders->getSize();
 
-            $customer_props['orders_count'] = $customer_orders_count;
-            if ($customer_orders_count) {
-                $customer_props['last_order_id'] = $customer_orders->getLastItem()->getId();
-                $customer_props['total_spent'] = array_sum($customer_orders->getColumnValues('base_grand_total'));
+                $customer_props['orders_count'] = $customer_orders_count;
+                if ($customer_orders_count) {
+                    $customer_props['last_order_id'] = $customer_orders->getLastItem()->getId();
+                    $total_spent = $customer_orders
+                        ->addExpressionFieldToSelect('sum_total', 'SUM(base_grand_total)', 'base_grand_total')
+                        ->fetchItem()->getSumTotal();
+                    $customer_props['total_spent'] = $total_spent;
+                }
+            } catch (Exception $e) {
+                Mage::helper('full/log')->logException($e);
+                Mage::getSingleton('adminhtml/session')->addError('Riskified extension: ' . $e->getMessage());
             }
         }
 
@@ -273,6 +351,43 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         return $this->getAddress($mageAddr);
     }
 
+    private function logPaymentData($model) {
+        Mage::helper('full/log')->log("Payment info debug Logs:");
+        try {
+            $payment = $model->getPayment();
+            $gateway_name = $payment->getMethod();
+            Mage::helper('full/log')->log("Payment Gateway: ".$gateway_name);
+            Mage::helper('full/log')->log("payment->getCcLast4(): ".$payment->getCcLast4());
+            Mage::helper('full/log')->log("payment->getCcType(): ".$payment->getCcType());
+            Mage::helper('full/log')->log("payment->getCcCidStatus(): ".$payment->getCcCidStatus());
+            Mage::helper('full/log')->log("payment->getCcAvsStatus(): ".$payment->getCcAvsStatus());
+            Mage::helper('full/log')->log("payment->getAdditionalInformation(): ".PHP_EOL.var_export($payment->getAdditionalInformation(), 1));
+            # paypal_avs_code,paypal_cvv2_match,paypal_fraud_filters,avs_result,cvv2_check_result,address_verification,
+            # postcode_verification,payment_status,pending_reason,payer_id,payer_status,email,credit_card_cvv2,
+            # cc_avs_status,cc_approval,cc_last4,cc_owner,cc_exp_month,cc_exp_year,
+            $sage = $model->getSagepayInfo();
+            if(is_object($sage)) {
+                #####,postcode_result,avscv2,address_status,payer_status
+                Mage::helper('full/log')->log("sagepay->getLastFourDigits(): ".$sage->getLastFourDigits());
+                Mage::helper('full/log')->log("sagepay->last_four_digits: ".$sage->getData('last_four_digits'));
+                Mage::helper('full/log')->log("sagepay->getCardType(): ".$sage->getCardType());
+                Mage::helper('full/log')->log("sagepay->card_type: ".$sage->getData('card_type'));
+                Mage::helper('full/log')->log("sagepay->getAvsCv2Status: ".$sage->getAvsCv2Status());
+                Mage::helper('full/log')->log("sagepay->address_result: ".$sage->getData('address_result'));
+                Mage::helper('full/log')->log("sagepay->getCv2result: ".$sage->getCv2result());
+                Mage::helper('full/log')->log("sagepay->cv2result: ".$sage->getData('cv2result'));
+                Mage::helper('full/log')->log("sagepay->getAvscv2: ".$sage->getAvscv2());
+                Mage::helper('full/log')->log("sagepay->getAddressResult: ".$sage->getAddressResult());
+                Mage::helper('full/log')->log("sagepay->getPostcodeResult: ".$sage->getPostcodeResult());
+                Mage::helper('full/log')->log("sagepay->getDeclineCode: ".$sage->getDeclineCode());
+                Mage::helper('full/log')->log("sagepay->getBankAuthCode: ".$sage->getBankAuthCode());
+                Mage::helper('full/log')->log("sagepay->getPayerStatus: ".$sage->getPayerStatus());
+            }
+        } catch(Exception $e) {
+            Mage::helper('full/log')->logException($e);
+        }
+    }
+
     private function getPaymentDetails($model) {
         $payment = $model->getPayment();
         if(!$payment) {
@@ -282,72 +397,99 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         $transactionId = $payment->getTransactionId();
 
         $gateway_name = $payment->getMethod();
-        switch ($gateway_name) {
-            case 'authorizenet':
-                $cards_data = array_values($payment->getAdditionalInformation('authorize_cards'));
-                $card_data = $cards_data[0];
-                $avs_result_code = $card_data['cc_avs_result_code']; // getAvsResultCode
-                $cvv_result_code = $card_data['cc_response_code'];  // getCardCodeResponseCode
-                $credit_card_number  = $card_data['cc_last4'];
-                $credit_card_company = $card_data['cc_type'];
-                break;
-            case 'paypal_express':
-            case 'paypaluk_express':
-                $payer_email = $payment->getAdditionalInformation('paypal_payer_email');
-                $payer_status = $payment->getAdditionalInformation('paypal_payer_status');
-                $payer_address_status = $payment->getAdditionalInformation('paypal_address_status');
-                $protection_eligibility = $payment->getAdditionalInformation('paypal_protection_eligibility');
-                $payment_status = $payment->getAdditionalInformation('paypal_payment_status');
-                $pending_reason = $payment->getAdditionalInformation('paypal_pending_reason');
 
-                return new Model\PaymentDetails(array_filter(array(
-                    'authorization_id' => $transactionId,
-                    'payer_email' => $payer_email,
-                    'payer_status' => $payer_status,
-                    'payer_address_status' => $payer_address_status,
-                    'protection_eligibility' => $protection_eligibility,
-                    'payment_status' => $payment_status,
-                    'pending_reason' => $pending_reason
-                ),'strlen'));
+        try {
+            switch ($gateway_name) {
+                case 'authorizenet':
+                    $authorize_data = $payment->getAdditionalInformation('authorize_cards');
+                    if($authorize_data && is_array($authorize_data)) {
+                        $cards_data = array_values($authorize_data);
+                        if ($cards_data && $cards_data[0]) {
+                            $card_data = $cards_data[0];
+                            $avs_result_code = $card_data['cc_avs_result_code']; // getAvsResultCode
+                            $cvv_result_code = $card_data['cc_response_code'];  // getCardCodeResponseCode
+                            $credit_card_number = $card_data['cc_last4'];
+                            $credit_card_company = $card_data['cc_type'];
+                        }
+                    }
+                    break;
+                case 'paypal_express':
+                case 'paypaluk_express':
+                    $payer_email = $payment->getAdditionalInformation('paypal_payer_email');
+                    $payer_status = $payment->getAdditionalInformation('paypal_payer_status');
+                    $payer_address_status = $payment->getAdditionalInformation('paypal_address_status');
+                    $protection_eligibility = $payment->getAdditionalInformation('paypal_protection_eligibility');
+                    $payment_status = $payment->getAdditionalInformation('paypal_payment_status');
+                    $pending_reason = $payment->getAdditionalInformation('paypal_pending_reason');
+                    return new Model\PaymentDetails(array_filter(array(
+                        'authorization_id' => $transactionId,
+                        'payer_email' => $payer_email,
+                        'payer_status' => $payer_status,
+                        'payer_address_status' => $payer_address_status,
+                        'protection_eligibility' => $protection_eligibility,
+                        'payment_status' => $payment_status,
+                        'pending_reason' => $pending_reason
+                    ), 'strlen'));
+                case 'paypal_direct':
+                case 'paypaluk_direct':
+                    $avs_result_code = $payment->getAdditionalInformation('paypal_avs_code');
+                    $cvv_result_code = $payment->getAdditionalInformation('paypal_cvv2_match');
+                    $credit_card_number = $payment->getCcLast4();
+                    $credit_card_company = $payment->getCcType();
+                    break;
+                case 'sagepaydirectpro':
+                case 'sage_pay_form':
+                case 'sagepayserver':
+                    $sage = $model->getSagepayInfo();
+                    if ($sage) {
+                        $avs_result_code = $sage->getData('address_result');
+                        $cvv_result_code = $sage->getData('cv2result');
+                        $credit_card_number = $sage->getData('last_four_digits');
+                        $credit_card_company = $sage->getData('card_type');
+                        //Mage::helper('full/log')->log("sagepay payment (".$gateway_name.") additional info: ".PHP_EOL.var_export($sage->getAdditionalInformation(), 1));
+                        Mage::helper('full/log')->log("sagepay payment (".$gateway_name.") additional info: ".PHP_EOL.var_export($payment->getAdditionalInformation(), 1));
+                    }
+                    else {
+                        Mage::helper('full/log')->log("sagepay payment (".$gateway_name.") - getSagepayInfo returned null object");
+                    }
+                    break;
 
-            case 'paypal_direct':
-            case 'paypaluk_direct':
-                $avs_result_code = $payment->getAdditionalInformation('paypal_avs_code');
-                $cvv_result_code = $payment->getAdditionalInformation('paypal_cvv2_match');
-                $credit_card_number = $payment->getCcLast4();
-                $credit_card_company = $payment->getCcType();
-                break;
+                case 'transarmor':
+                    $avs_result_code = $payment->getAdditionalInformation('avs_response');
+                    $cvv_result_code = $payment->getAdditionalInformation('cvv2_response');
+                    Mage::helper('full/log')->log("transarmor payment additional info: ".PHP_EOL.var_export($payment->getAdditionalInformation(), 1));
+                    break;
 
-            case 'sagepaydirectpro':
-                $sage = $model->getSagepayInfo();
-                $avs_result_code = $sage->getData('address_result');
-                $cvv_result_code = $sage->getData('cv2result');
-                $credit_card_number = $sage->getData('last_four_digits');
-                $credit_card_company = $sage->getData('card_type');
-                break;
-
-            default:
-                Mage::helper('full/log')->log("unknown gateway:". $gateway_name);
-                break;
+                default:
+                    Mage::helper('full/log')->log("unknown gateway:" . $gateway_name);
+                    Mage::helper('full/log')->log("Gateway payment (".$gateway_name.") additional info: ".PHP_EOL.var_export($payment->getAdditionalInformation(), 1));
+                    break;
+            }
+        } catch (Exception $e) {
+            Mage::helper('full/log')->logException($e);
+            Mage::getSingleton('adminhtml/session')->addError('Riskified extension: ' . $e->getMessage());
         }
 
-        if (!$cvv_result_code) {
+        if (!isset($cvv_result_code)) {
             $cvv_result_code = $payment->getCcCidStatus();
         }
-        if (!$credit_card_number) {
+        if (!isset($credit_card_number)) {
             $credit_card_number = $payment->getCcLast4();
         }
-        if (!$credit_card_company) {
+        if (!isset($credit_card_company)) {
             $credit_card_company = $payment->getCcType();
         }
-        if (!$avs_result_code) {
+        if (!isset($avs_result_code)) {
             $avs_result_code = $payment->getCcAvsStatus();
         }
-
-        if($credit_card_number) {
+        if (isset($credit_card_number)) {
             $credit_card_number = "XXXX-XXXX-XXXX-" . $credit_card_number;
         }
         $credit_card_bin = $payment->getAdditionalInformation('riskified_cc_bin');
+
+        if(Mage::helper('full')->isDebugLogsEnabled()) {
+            $this->logPaymentData($model);
+        }
 
         return new Model\PaymentDetails(array_filter(array(
             'authorization_id' => $transactionId,
@@ -361,7 +503,6 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
 
     private function getLineItems($model) {
         $line_items = array();
-        //foreach ($model->getItemsCollection() as $key => $val) {
         foreach ($model->getAllVisibleItems() as $key => $val) {
             $line_items[] = new Model\LineItem(array_filter(array(
                 'price' => $val->getPrice(),
@@ -369,8 +510,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
                 'title' => $val->getName(),
                 'sku' => $val->getSku(),
                 'product_id' => $val->getItemId(),
-                'grams' => $val->getWeight(),
-                'vendor' => $model->getStoreName()
+                'grams' => $val->getWeight()
             ),'strlen'));
         }
         return $line_items;
