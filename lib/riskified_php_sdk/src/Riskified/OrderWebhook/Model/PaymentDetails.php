@@ -1,6 +1,6 @@
 <?php namespace Riskified\OrderWebhook\Model;
 /**
- * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ class PaymentDetails extends AbstractModel {
         'cvv_result_code' => 'string /^.+$/i',
         'credit_card_number' => 'string',
         'credit_card_company' => 'string',
-        'credit_card_token' => 'string',
 
         'payer_email' => 'string optional',
         'payer_status' => 'string optional',

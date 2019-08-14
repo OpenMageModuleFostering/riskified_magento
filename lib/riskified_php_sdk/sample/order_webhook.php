@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -14,13 +14,12 @@
  * permissions and limitations under the License.
  */
 
-// A simple example of submitting an order.
-// Usage: php order_simple_submit.php
+// A simple example of creating an order from the command line.
+// Usage: php order_webhook.php
 
 include __DIR__.'/../src/Riskified/autoloader.php';
 use Riskified\Common\Riskified;
 use Riskified\Common\Env;
-use Riskified\Common\Validations;
 use Riskified\Common\Signature;
 use Riskified\OrderWebhook\Model;
 use Riskified\OrderWebhook\Transport;
@@ -31,7 +30,7 @@ $domain = "test.com";
 # Replace with the 'auth token' listed in the Riskified web app under the 'Settings' Tab
 $authToken = "1388add8a99252fc1a4974de471e73cd";
 
-Riskified::init($domain, $authToken, Env::SANDBOX, Validations::IGNORE_MISSING);
+Riskified::init($domain, $authToken, Env::SANDBOX);
 
 # Order
 $order = new Model\Order(array(
@@ -60,6 +59,7 @@ $lineItem1 = new Model\LineItem(array(
     'product_id' => '101',
     'sku' => 'ABCD'
 ));
+
 $lineItem2 = new Model\LineItem(array(
     'price' => 200,
     'quantity' => 4,
@@ -79,7 +79,7 @@ $order->discount_codes = $discountCode;
 # ShippingLines    
 $shippingLine = new Model\ShippingLine(array(
     'price' => 123.00,
-    'code' => 'Free',
+    'title' => 'Free',
 ));
 $order->shipping_lines = $shippingLine;
 
@@ -101,8 +101,7 @@ $customer = new Model\Customer(array(
     'id' => '1233',
     'created_at' => '2008-01-10T11:00:00-05:00',
     'orders_count' => 6,
-    'verified_email' => true,
-    'account_type' => 'free'
+    'verified_email' => true
 ));
 $order->customer = $customer;
 
@@ -142,20 +141,75 @@ $shippingAddress = new Model\Address(array(
 ));
 $order->shipping_address = $shippingAddress;
 
-echo "\nORDER REQUEST:".PHP_EOL.json_encode(json_decode($order->toJson())).PHP_EOL;
-
+echo "\nREQUEST:".PHP_EOL.json_encode(json_decode($order->toJson())).PHP_EOL;
 
 # Create a curl transport to the Riskified Server    
 $transport = new Transport\CurlTransport(new Signature\HttpDataSignature());
 $transport->timeout = 10;
 
+try {
+    $response = $transport->createOrder($order);
+    echo PHP_EOL."Create Order succeeded. Response: ".PHP_EOL.json_encode($response).PHP_EOL;
+} catch(\Riskified\OrderWebhook\Exception\UnsuccessfulActionException $uae) {
+    echo PHP_EOL."Create order not succeeded. Status code was: ".$uae->statusCode." and json body was: "
+        .json_encode($uae->jsonResponse).PHP_EOL;
+} catch(Exception $e) {
+    echo PHP_EOL."Create order not succeeded. Exception: ".$e->getMessage().PHP_EOL;
+}
 
 try {
     $response = $transport->submitOrder($order);
-    echo PHP_EOL."Submit Order succeeded. Response: ".PHP_EOL.json_encode($response).PHP_EOL;
+    echo PHP_EOL."Submit order succeeded. Response: ".PHP_EOL.json_encode($response).PHP_EOL;
 } catch(\Riskified\OrderWebhook\Exception\UnsuccessfulActionException $uae) {
-    echo PHP_EOL."Submit Order not succeeded. Status code was: ".$uae->statusCode." and json body was: "
+    echo PHP_EOL."Submit order not succeeded. Status code was: ".$uae->statusCode." and json body was: "
         .json_encode($uae->jsonResponse).PHP_EOL;
 } catch(Exception $e) {
-    echo PHP_EOL."Submit Order not succeeded. Exception: ".$e->getMessage().PHP_EOL;
+    echo PHP_EOL."Submit order not succeeded. Exception: ".$e->getMessage().PHP_EOL;
+}
+
+$updatedOrder = new Model\Order(array(
+    'id' => $order->id,
+    'email' => 'another.email@example.com',
+));
+
+try {
+    $response = $transport->updateOrder($updatedOrder);
+    echo PHP_EOL."Update Order succeeded. Response: ".PHP_EOL.json_encode($response).PHP_EOL;
+} catch(\Riskified\OrderWebhook\Exception\UnsuccessfulActionException $uae) {
+    echo PHP_EOL."Update order not succeeded. Status code was: ".$uae->statusCode." and json body was: "
+        .json_encode($uae->jsonResponse).PHP_EOL;
+} catch(Exception $e) {
+    echo PHP_EOL."Update order not succeeded. Exception: ".$e->getMessage().PHP_EOL;
+}
+
+$refund = new Model\Refund(array(
+    'id' => $order->id,
+    'refunds' => array(new Model\RefundDetails(array(
+            'refund_id' => 'refund_001',
+            'amount' => 33.12,
+            'currency' => 'USD',
+            'reason' => 'Product Missing'
+        )))
+));
+
+echo "\nREQUEST:".PHP_EOL.json_encode(json_decode($refund->toJson())).PHP_EOL;
+
+try {
+    $response = $transport->refundOrder($refund);
+    echo PHP_EOL."Refund Order succeeded. Response: ".PHP_EOL.json_encode($response).PHP_EOL;
+} catch(\Riskified\OrderWebhook\Exception\UnsuccessfulActionException $uae) {
+    echo PHP_EOL."Refund order not succeeded. Status code was: ".$uae->statusCode." and json body was: "
+        .json_encode($uae->jsonResponse).PHP_EOL;
+} catch(Exception $e) {
+    echo PHP_EOL."Refund order not succeeded. Exception: ".$e->getMessage().PHP_EOL;
+}
+
+try {
+    $response = $transport->cancelOrder($order);
+    echo PHP_EOL."Cancel order succeeded. Response: ".PHP_EOL.json_encode($response).PHP_EOL;
+} catch(\Riskified\OrderWebhook\Exception\UnsuccessfulActionException $uae) {
+    echo PHP_EOL."Cancel order not succeeded. Status code was: ".$uae->statusCode." and json body was: "
+        .json_encode($uae->jsonResponse).PHP_EOL;
+} catch(Exception $e) {
+    echo PHP_EOL."Cancel order not succeeded. Exception: ".$e->getMessage().PHP_EOL;
 }

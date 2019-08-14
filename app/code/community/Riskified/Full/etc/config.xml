@@ -2,7 +2,7 @@
 <config>
     <modules>
         <Riskified_Full>
-            <version>1.0.10.0</version>
+            <version>1.0.5.5</version>
         </Riskified_Full>
     </modules>
 
@@ -13,11 +13,6 @@
                     <authorizenet>Riskified_Full_Model_Authorizenet</authorizenet>
                 </rewrite>
             </paygate>
-            <paypal>
-                <rewrite>
-                    <payflowpro>Riskified_Full_Model_Payflowpro</payflowpro>
-                </rewrite>
-            </paypal>
             <full>
                 <class>Riskified_Full_Model</class>
                 <resourceModel>riskified_full_resource</resourceModel>
@@ -28,17 +23,9 @@
                     <retry>
                         <table>riskified_full_retry</table>
                     </retry>
-                    <historical_order_sent>
-                        <table>riskified_full_historical_sent</table>
-                    </historical_order_sent>
                 </entities>
             </riskified_full_resource>
         </models>
-        <blocks>
-            <full>
-                <class>Riskified_Full_Block</class>
-            </full>
-        </blocks>
         <resources>
             <riskified_full_setup>
                 <setup>
@@ -52,15 +39,6 @@
             </full>
         </helpers>
         <events>
-            <admin_system_config_changed_section_fullsection>
-                <observers>
-                    <riskified_full>
-                        <type>singleton</type>
-                        <class>full/observer</class>
-                        <method>saveRiskifiedConfig</method>
-                    </riskified_full>
-                </observers>
-            </admin_system_config_changed_section_fullsection>
             <sales_order_payment_place_start>
                 <observers>
                     <riskified_full>
@@ -151,6 +129,15 @@
                     </riskified_full>
                 </observers>
             </order_cancel_after>
+            <adminhtml_widget_container_html_before>
+                <observers>
+                    <module>
+                        <type>singleton</type>
+                        <class>full/observer</class>
+                        <method>blockHtmlBefore</method>
+                    </module>
+                </observers>
+            </adminhtml_widget_container_html_before>
             <riskified_full_order_update>
                 <observers>
                     <riskified_full_handle_order_update>
@@ -187,41 +174,7 @@
                     </riskified_full_process_successful_post>
                 </observers>
             </riskified_full_post_order_success>
-            <sales_model_service_quote_submit_failure>
-                <observers>
-                    <riskified_full_handle_default_failed_transaction>
-                        <class>full/observer_order_payment_failed</class>
-                        <method>handleDefaultFailedTransaction</method>
-                    </riskified_full_handle_default_failed_transaction>
-                </observers>
-            </sales_model_service_quote_submit_failure>
-            <sales_model_service_quote_submit_before>
-                <observers>
-                    <riskified_full_handle_quote_submit>
-                        <class>full/observer_quote_submit</class>
-                        <method>handleQuoteSubmit</method>
-                    </riskified_full_handle_quote_submit>
-                </observers>
-            </sales_model_service_quote_submit_before>
-            <riskified_full_order_update_declined>
-                <observers>
-                    <riskified_full_order_update_declined>
-                        <type>singleton</type>
-                        <class>full/observer_order_decline</class>
-                        <method>handleOrderDecline</method>
-                    </riskified_full_order_update_declined>
-                </observers>
-            </riskified_full_order_update_declined>
         </events>
-        <template>
-            <email>
-                <riskified_order_declined module="full">
-                    <label>Notification to customer when order was declined by Riskified</label>
-                    <file>full/order/declined.html</file>
-                    <type>html</type>
-                </riskified_order_declined>
-            </email>
-        </template>
     </global>
 
     <frontend>
@@ -245,45 +198,46 @@
 
     <admin>
         <routers>
-            <adminhtml>
+            <full>
+                <use>admin</use>
                 <args>
-                    <modules>
-                        <riskified_full after="Mage_Adminhtml">Riskified_Full_Adminhtml</riskified_full>
-                        <frontName>riskifiedfull</frontName>
-                    </modules>
+                    <module>Riskified_Full</module>
+                    <frontName>full</frontName>
                 </args>
-            </adminhtml>
+            </full>
         </routers>
     </admin>
 
     <adminhtml>
-        <events>
-            <adminhtml_widget_container_html_before>
-                <observers>
-                    <module>
-                        <type>singleton</type>
-                        <class>full/observer</class>
-                        <method>blockHtmlBefore</method>
-                    </module>
-                </observers>
-            </adminhtml_widget_container_html_before>
-            <sales_order_creditmemo_save_after>
-                <observers>
-                    <riskified_full_handle_creditmemo_save>
-                        <class>full/observer_order_creditmemo_save</class>
-                        <method>handleCreditmemoSave</method>
-                    </riskified_full_handle_creditmemo_save>
-                </observers>
-            </sales_order_creditmemo_save_after>
-            <sales_order_shipment_save_after>
-                <observers>
-                    <riskified_full_handle_shipment_save>
-                        <class>full/observer_order_shipment_save</class>
-                        <method>handleShipmentSave</method>
-                    </riskified_full_handle_shipment_save>
-                </observers>
-            </sales_order_shipment_save_after>
-        </events>
+        <acl>
+            <resources>
+                <all>
+                    <title>Allow Everything</title>
+                </all>
+                <admin>
+                    <children>
+                        <Riskified_Full>
+                            <title>Full Module</title>
+                            <sort_order>10</sort_order>
+                        </Riskified_Full>
+                        <system>
+                            <children>
+                                <config>
+                                    <children>
+                                        <fullsection translate="title"
+                                                     module="full">  <!-- This is name of the section created by us -->
+                                            <title>Riskified</title>
+                                            <!-- Title as shown in User->Roles->Permissions Window -->
+                                            <sort_order>99</sort_order>
+                                        </fullsection>
+                                    </children>
+                                </config>
+                            </children>
+                        </system>
+                    </children>
+                </admin>
+            </resources>
+        </acl>
         <layout>
             <updates>
                 <full>
@@ -303,6 +257,7 @@
             </core_block_abstract_prepare_layout_before>
         </events>
     </adminhtml>
+
     <crontab>
         <jobs>
             <riskified_full_retry_submission>
@@ -313,18 +268,13 @@
                     <model>full/cron::retrySubmissions</model>
                 </run>
             </riskified_full_retry_submission>
-            <riskfied_full_upload_historical_orders>
-                <run>
-                    <model>full/cron::uploadHistoricalOrders</model>
-                </run>
-            </riskfied_full_upload_historical_orders>
         </jobs>
     </crontab>
 
     <phpunit>
         <suite>
             <modules>
-                <Riskified_Full/>
+                <Riskified_Full />
             </modules>
         </suite>
     </phpunit>
@@ -332,22 +282,12 @@
     <default>
         <fullsection>
             <full>
-                <beaconurl>beacon.riskified.com</beaconurl>
-                <env>SANDBOX</env>
-                <!--<domain></domain>-->
-                <!--<key></key>-->
                 <order_status_sync>0</order_status_sync>
-                <!--<approved_state>processing</approved_state>-->
-                <!--<declined_state>canceled</declined_state>-->
+                <env>PROD</env>
+                <beaconurl>beacon.riskified.com</beaconurl>
                 <auto_invoice_enabled>0</auto_invoice_enabled>
                 <auto_invoice_capture_case>online</auto_invoice_capture_case>
-                <debug_logs>0</debug_logs>
             </full>
-            <decline_notification>
-                <email_identity>general</email_identity>
-                <title>{{store_name}}: Order # {{order_increment_id}} has been declined</title>
-                <content><![CDATA[<p>We regret to inform you that your recent order #{{order_increment_id}} for {{products}}  has been declined.</p>]]></content>
-            </decline_notification>
         </fullsection>
     </default>
 </config>

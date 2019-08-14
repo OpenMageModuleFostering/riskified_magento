@@ -1,7 +1,7 @@
 <?php namespace Riskified\Common;
 
     /**
-     * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+     * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
      *
      * Licensed under the Apache License, Version 2.0 (the "License").
      * You may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
  * @package Riskified\Common
  */
 class Riskified {
-    const VERSION = '1.6.6';
+    const VERSION = '1.1.0';
     const API_VERSION = '2';
 
     /**
@@ -48,7 +48,7 @@ class Riskified {
      * @param $env string Riskified environment
      * @param $validations string SDK validation mode
      */
-    public static function init($domain, $auth_token, $env = Env::SANDBOX, $validations = Validations::IGNORE_MISSING) {
+    public static function init($domain, $auth_token, $env = Env::SANDBOX, $validations = Validations::ALL) {
         self::$domain = $domain;
         self::$auth_token = $auth_token;
         self::$env = $env;

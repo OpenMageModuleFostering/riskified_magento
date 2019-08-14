@@ -1,6 +1,6 @@
 <?php namespace Riskified\OrderWebhook\Transport;
 /**
- * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -55,16 +55,6 @@ abstract class AbstractTransport {
     }
 
     /**
-     * Update a merchant's settings
-     * @param hash object named 'settings' with a key-value structure
-     * @return object Response object
-     * @throws \Riskified\Common\Exception\BaseException on any issue
-     */
-    public function updateMerchantSettings($settings) {
-        return $this->send_settings($settings);
-    }
-
-    /**
      * Submit an Order to Riskified for review
      * @param $order object Order to submit
      * @return object Response object
@@ -114,47 +104,6 @@ abstract class AbstractTransport {
         return $this->send_order($order, 'refund', false);
     }
 
-    /**
-     * Send order fulfillment status
-     * @param $fulfillment object Fulfillment with order id and fulfillment details
-     * @return object Response object
-     * @throws \Riskified\Common\Exception\BaseException on any issue
-     */
-    public function fulfillOrder($fulfillment) {
-        return $this->send_order($fulfillment, 'fulfill', true);
-    }
-
-    /**
-     * Send order decision status
-     * @param $decision object Decision on the order. reports riskified about what was your decision on the order.
-     * @return object Response object
-     * @throws \Riskified\Common\Exception\BaseException on any issue
-     */
-    public function decisionOrder($decision) {
-        return $this->send_order($decision, 'decision', true);
-    }
-
-
-    /**
-     * Send a Checkout to Riskified
-     * @param $checkout object Checkout to send
-     * @return object Response object
-     * @throws \Riskified\Common\Exception\BaseException on any issue
-     */
-    public function createCheckout($checkout) {
-        return $this->send_checkout($checkout, 'checkout_create');
-    }
-
-    /**
-     * Notify that a Checkout failed
-     * @param $checkout object Checkout to send (with AuthotizationError field)
-     * @return object Response object
-     * @throws \Riskified\Common\Exception\BaseException on any issue
-     */
-    public function deniedCheckout($checkout) {
-        return $this->send_checkout($checkout, 'checkout_denied');
-    }
-
     public function sendHistoricalOrders($orders) {
         $joined = join(',',array_map(function($order) { return $order->toJson(); }, $orders));
         $json = '{"orders":['.$joined.']}';
@@ -164,20 +113,6 @@ abstract class AbstractTransport {
     protected function send_order($order, $endpoint, $enforce_required_keys) {
         if ($this->validate($order, $enforce_required_keys)) {
             $json = '{"order":' . $order->toJson() . '}';
-            return $this->send_json_request($json, $endpoint);
-        }
-        return null;
-    }
-
-    protected function send_settings($settings) {
-        $json = $settings->toJson();
-        return $this->send_json_request($json, 'settings');
-        return null;
-    }
-
-    protected function send_checkout($checkout, $endpoint) {
-        if ($this->validate($checkout, false)) {
-            $json = '{"checkout":' . $checkout->toJson() . '}';
             return $this->send_json_request($json, $endpoint);
         }
         return null;

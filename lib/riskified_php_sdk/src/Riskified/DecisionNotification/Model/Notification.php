@@ -1,6 +1,6 @@
 <?php namespace Riskified\DecisionNotification\Model;
 /**
- * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -31,10 +31,6 @@ class Notification {
      * @var string Status of Order
      */
     public $status;
-    /**
-     * @var string Status of Order
-     */
-    public $oldStatus;
     /**
      * @var string Description of Decision
      */
@@ -85,11 +81,7 @@ class Notification {
         if (!array_key_exists('id', $order) || !array_key_exists('status', $order))
             throw new Exception\BadPostJsonException($this->headers, $this->body);
 
-        //foreach($order as $key => $value)
-        //    $this->$key = $value;
-        $this->id = $order->{'id'};
-        $this->status = $order->{'status'};
-        $this->oldStatus = $order->{'old_status'};
-        $this->description = $order->{'description'};
+        foreach($order as $key => $value)
+            $this->$key = $value;
     }
 }

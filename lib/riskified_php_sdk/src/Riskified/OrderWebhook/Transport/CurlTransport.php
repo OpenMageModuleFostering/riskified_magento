@@ -1,6 +1,6 @@
 <?php namespace Riskified\OrderWebhook\Transport;
 /**
- * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -27,8 +27,6 @@ class CurlTransport extends AbstractTransport {
     public $timeout = 10;
     public $dns_cache = true;
 
-    public $requestData;
-
     /**
      * @param $order object Order to send
      * @param $endpoint String API endpoint to send request
@@ -51,17 +49,13 @@ class CurlTransport extends AbstractTransport {
         );
         curl_setopt_array($ch, $curl_options);
 
-        $this->requestData['endpoint'] = $this->endpoint_prefix().$endpoint;
-        $this->requestData['payload'] = $json;
 
         $body = curl_exec($ch);
-        $this->requestData['responseBody'] = $body;
         if (curl_errno($ch)) {
             throw new Exception\CurlException(curl_error($ch), curl_errno($ch));
         }
 
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $this->requestData['responseStatus'] = $status;
         curl_close($ch);
 
         return $this->json_response($body, $status);

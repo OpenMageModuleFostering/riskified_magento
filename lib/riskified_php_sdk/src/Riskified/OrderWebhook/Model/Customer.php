@@ -1,6 +1,6 @@
 <?php namespace Riskified\OrderWebhook\Model;
 /**
- * Copyright 2013-2015 Riskified.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2013-2014 Riskified.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -22,15 +22,13 @@
 class Customer extends AbstractModel {
 
     protected $_fields = array(
-        'email' => "string /^[a-z0-9,!#\$%&'\*\+\/=\?\^_`\{\|}~-]+(?:\.[a-z0-9,!#\$%&'\*\+\/=\?\^_`\{\|}~-]+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:[a-z]{2,})$/i",
+        'email' => 'string /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}$/i',
         'first_name' => 'string',
         'last_name' => 'string',
 
         'created_at' => 'date optional',
         'updated_at' => 'date optional',
         'id' => 'string optional',
-        'group_id' => 'string optional',
-        'group_name' => 'string optional',
         'note' => 'string optional',
         'orders_count' => 'number optional',
         'verified_email' => 'boolean optional',
@@ -40,14 +38,6 @@ class Customer extends AbstractModel {
         'state' => 'string optional',
         'total_spent' => 'float optional',
         'tags' => 'string optional',
-        'account_type' => 'string optional',
-
-        'default_address' => 'object \Address optional',
-        'social' => 'array object \SocialDetails optional',
-
-        'buy_attempts' => 'number optional',
-        'sell_attempts' => 'number optional',
-
-        'address' => 'object \Address optional'
+        'default_address' => 'object \Address optional'
     );
 }
