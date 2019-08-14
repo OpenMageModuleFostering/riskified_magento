@@ -126,7 +126,7 @@ class Riskified_Full_Model_Observer {
         Mage::helper('full/log')->log("salesOrderCancel");
 
         $order = $evt->getOrder();
-        
+
         // TODO not sure if this is still required - saveAfter should be enough
 
         try {
@@ -152,12 +152,13 @@ class Riskified_Full_Model_Observer {
 
     public function addMassAction($observer) {
         $block = $observer->getEvent()->getBlock();
-        if(get_class($block) =='Mage_Adminhtml_Block_Widget_Grid_Massaction'
+        if((get_class($block) =='Mage_Adminhtml_Block_Widget_Grid_Massaction'
+                || get_class($block)=='Enterprise_SalesArchive_Block_Adminhtml_Sales_Order_Grid_Massaction')
             && $block->getRequest()->getControllerName() == 'sales_order')
         {
             $block->addItem('full', array(
                 'label' => 'Submit to Riskified',
-                'url' => Mage::app()->getStore()->getUrl('full/adminhtml_full/riskimass'),
+                'url' => Mage::helper('adminhtml')->getUrl('adminhtml/riskifiedfull/massSend'),
             ));
         }
     }
@@ -166,7 +167,7 @@ class Riskified_Full_Model_Observer {
         $block = $observer->getEvent()->getBlock();
         if ($block->getType() == 'adminhtml/sales_order_view') {
             $message = Mage::helper('sales')->__('Are you sure you want to submit this order to Riskified?');
-            $url = $block->getUrl('full/adminhtml_full/riski');
+            $url = $block->getUrl('adminhtml/riskifiedfull/send');
             $block->addButton('riski_submit', array(
                 'label'     => Mage::helper('sales')->__('Submit to Riskified'),
                 'onclick'   => "deleteConfirm('$message', '$url')",
@@ -262,6 +263,21 @@ class Riskified_Full_Model_Observer {
 		}
 	}
 
+    private function logInvoiceParameters($order) {
+        try {
+            Mage::helper('full/log')->log("Order ".$order->getId()." parameters relevant to invoicing failure:");
+            Mage::helper('full/log')->log("Order state: ".$order->getState());
+            Mage::helper('full/log')->log("Order status: ".$order->getStatus());
+            Mage::helper('full/log')->log("UNHOLD action flag: ".$order->getActionFlag(Mage_Sales_Model_Order::ACTION_FLAG_UNHOLD));
+            Mage::helper('full/log')->log("INVOICE action flag: ".$order->getActionFlag(Mage_Sales_Model_Order::ACTION_FLAG_INVOICE));
+            foreach ($order->getAllItems() as $item) {
+                Mage::helper('full/log')->log("item ".$item->getProductId()." - qty: ".$item->getQtyToInvoice()."  locked: ".$item->getLockedDoInvoice());
+            }
+        } catch(Exception $e) {
+            Mage::helper('full/log')->logException($e);
+        }
+    }
+
 	/**
 	 * Create an invoice when the order is approved
 	 *
@@ -284,8 +300,13 @@ class Riskified_Full_Model_Observer {
 
 		Mage::helper('full/log')->log("Auto-invoicing  order " . $order->getId());
 
-		if (!$order->canInvoice()) {
+		if (!$order->canInvoice() || $order->getState() != Mage_Sales_Model_Order::STATE_PROCESSING) {
 			Mage::helper('full/log')->log("Order cannot be invoiced");
+
+            if(Mage::helper('full')->isDebugLogsEnabled()) {
+                $this->logInvoiceParameters($order);
+            }
+
 			return;
 		}
 
@@ -363,7 +384,7 @@ class Riskified_Full_Model_Observer {
         if (isset($response->order)) {
             $orderId = $response->order->id;
             $status = $response->order->status;
-            $oldStatus = $response->order->old_status;
+            $oldStatus = isset($response->order->old_status) ? $response->order->old_status : null;
             $description = $response->order->description;
 
             if (!$description) {

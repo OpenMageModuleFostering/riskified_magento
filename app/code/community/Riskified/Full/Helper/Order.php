@@ -21,7 +21,6 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
 
     /**
      * Update the merchan't settings
-     *
      * @param settings hash
      * @return stdClass
      * @throws Exception
@@ -110,7 +109,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
             Mage::helper('full/log')->logException($curlException);
             Mage::getSingleton('adminhtml/session')->addError('Riskified extension: ' . $curlException->getMessage());
 
-            $this->updateOrder($order, 'error',nil, 'Error transferring order data to Riskified');
+            $this->updateOrder($order, 'error',null, 'Error transferring order data to Riskified');
             $this->scheduleSubmissionRetry($order, $action);
 
             Mage::dispatchEvent(
@@ -383,6 +382,19 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
                 Mage::helper('full/log')->log("sagepay->getBankAuthCode: ".$sage->getBankAuthCode());
                 Mage::helper('full/log')->log("sagepay->getPayerStatus: ".$sage->getPayerStatus());
             }
+            if($gateway_name == "optimal_hosted") {
+                $optimalTransaction = unserialize($payment->getAdditionalInformation('transaction'));
+                if($optimalTransaction) {
+                    Mage::helper('full/log')->log("Optimal transaction: ");
+                    Mage::helper('full/log')->log("transaction->cvdVerification: ".$optimalTransaction->cvdVerification);
+                    Mage::helper('full/log')->log("transaction->houseNumberVerification: ".$optimalTransaction->houseNumberVerification);
+                    Mage::helper('full/log')->log("transaction->zipVerification: ".$optimalTransaction->zipVerification);
+                }
+                else {
+                    Mage::helper('full/log')->log("Optimal gateway but no transaction found");
+                }
+            }
+
         } catch(Exception $e) {
             Mage::helper('full/log')->logException($e);
         }
@@ -392,6 +404,10 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         $payment = $model->getPayment();
         if(!$payment) {
             return null;
+        }
+
+        if(Mage::helper('full')->isDebugLogsEnabled()) {
+            $this->logPaymentData($model);
         }
 
         $transactionId = $payment->getTransactionId();
@@ -406,15 +422,33 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
                         $cards_data = array_values($authorize_data);
                         if ($cards_data && $cards_data[0]) {
                             $card_data = $cards_data[0];
-                            $avs_result_code = $card_data['cc_avs_result_code']; // getAvsResultCode
-                            $cvv_result_code = $card_data['cc_response_code'];  // getCardCodeResponseCode
-                            $credit_card_number = $card_data['cc_last4'];
-                            $credit_card_company = $card_data['cc_type'];
+                            if(isset($card_data['cc_last4'])) { $credit_card_number = $card_data['cc_last4']; }
+                            if(isset($card_data['cc_type'])) { $credit_card_company = $card_data['cc_type']; }
+                            if(isset($card_data['cc_avs_result_code'])) { $avs_result_code = $card_data['cc_avs_result_code']; }// getAvsResultCode
+                            if(isset($card_data['cc_response_code'])) { $cvv_result_code = $card_data['cc_response_code']; } // getCardCodeResponseCode
                         }
+                    }
+                    break;
+                case 'authnetcim':
+                    $avs_result_code = $payment->getAdditionalInformation('avs_result_code');
+                    $cvv_result_code = $payment->getAdditionalInformation('card_code_response_code');
+                    #$cavv_result_code = $payment->getAdditionalInformation('cavv_response_code');
+                    #$is_fraud = $payment->getAdditionalInformation('is_fraud');
+                    break;
+                case 'optimal_hosted':
+                    try {
+                        $optimalTransaction = unserialize($payment->getAdditionalInformation('transaction'));
+                        $cvv_result_code = $optimalTransaction->cvdVerification;
+                        $houseVerification = $optimalTransaction->houseNumberVerification;
+                        $zipVerification = $optimalTransaction->zipVerification;
+                        $avs_result_code = $houseVerification . ',' . $zipVerification;
+                    } catch(Exception $e) {
+                        Mage::helper('full/log')->log("optimal payment (".$gateway_name.") additional payment info failed to parse:".$e->getMessage());
                     }
                     break;
                 case 'paypal_express':
                 case 'paypaluk_express':
+                case 'paypal_standard':
                     $payer_email = $payment->getAdditionalInformation('paypal_payer_email');
                     $payer_status = $payment->getAdditionalInformation('paypal_payer_status');
                     $payer_address_status = $payment->getAdditionalInformation('paypal_address_status');
@@ -487,10 +521,6 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
         }
         $credit_card_bin = $payment->getAdditionalInformation('riskified_cc_bin');
 
-        if(Mage::helper('full')->isDebugLogsEnabled()) {
-            $this->logPaymentData($model);
-        }
-
         return new Model\PaymentDetails(array_filter(array(
             'authorization_id' => $transactionId,
             'avs_result_code' => $avs_result_code,
@@ -504,15 +534,21 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
     private function getLineItems($model) {
         $line_items = array();
         foreach ($model->getAllVisibleItems() as $key => $val) {
+            $prod_type = null;
+            if($val->getProduct()) {
+                $prod_type = $val->getProduct()->getTypeId();
+            }
             $line_items[] = new Model\LineItem(array_filter(array(
                 'price' => $val->getPrice(),
                 'quantity' => intval($val->getQtyOrdered()),
                 'title' => $val->getName(),
                 'sku' => $val->getSku(),
                 'product_id' => $val->getItemId(),
-                'grams' => $val->getWeight()
+                'grams' => $val->getWeight(),
+                'product_type' => $prod_type
             ),'strlen'));
         }
+
         return $line_items;
     }
 
@@ -527,7 +563,7 @@ class Riskified_Full_Helper_Order extends Mage_Core_Helper_Abstract {
     private function getClientDetails($model) {
         return new Model\ClientDetails(array_filter(array(
             'accept_language' => Mage::app()->getLocale()->getLocaleCode(),
-            'browser_ip' => $this->getRemoteIp($model),
+            //'browser_ip' => $this->getRemoteIp($model),
             'user_agent' => Mage::helper('core/http')->getHttpUserAgent()
         ),'strlen'));
     }
