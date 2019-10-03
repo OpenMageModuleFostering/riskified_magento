@@ -1,16 +1,19 @@
 {
-    "name": "OpenMageModuleFostering/riskified_magento",
+    "name": "OpenMageModuleFostering\/riskified_magento",
     "type": "magento-module",
     "license": "OSL-v3.0",
     "homepage": "",
     "description": "Riskified Magento extension",
     "authors": [
-    {
-        "name": "Riskified_Mage",
-        "email": "support@riskified.com"
-    }
-],
+        {
+            "name": "Riskified_Mage",
+            "email": "support@riskified.com"
+        }
+    ],
     "suggest": {
-        "magento-hackathon/magento-composer-installer": "*"
-    }
+        "magento-hackathon\/magento-composer-installer": "*"
+    },
+    "keywords": [
+        "openmage-module"
+    ]
 }
